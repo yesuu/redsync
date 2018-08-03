@@ -68,6 +68,38 @@ func (m *Mutex) Lock() error {
 	return ErrFailed
 }
 
+func (m *Mutex) TryLock() error {
+	m.nodem.Lock()
+	defer m.nodem.Unlock()
+
+	value, err := m.genValue()
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+
+	n := 0
+	for _, pool := range m.pools {
+		ok := m.acquire(pool, value)
+		if ok {
+			n++
+		}
+	}
+
+	until := time.Now().Add(m.expiry - time.Now().Sub(start) - time.Duration(int64(float64(m.expiry)*m.factor)) + 2*time.Millisecond)
+	if n >= m.quorum && time.Now().Before(until) {
+		m.value = value
+		m.until = until
+		return nil
+	}
+	for _, pool := range m.pools {
+		m.release(pool, value)
+	}
+
+	return ErrFailed
+}
+
 // Unlock unlocks m and returns the status of unlock.
 func (m *Mutex) Unlock() bool {
 	m.nodem.Lock()
